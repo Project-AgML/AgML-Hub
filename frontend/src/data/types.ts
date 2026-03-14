@@ -18,6 +18,8 @@ export interface Dataset {
   license: string | null;
   /** BibTeX or text citation. From AgML source_citations.json. */
   citation: string | null;
+  /** If set, this is an iNat sub-dataset (e.g. iNatAg/sorghum_bicolor); exclude from summary count */
+  parent_dataset?: string | null;
 }
 
 export interface LeaderboardRow {

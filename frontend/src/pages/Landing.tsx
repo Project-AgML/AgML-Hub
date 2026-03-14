@@ -7,10 +7,11 @@ function DatasetStats() {
   if (loading) return <p className="text-sm text-muted">Loading stats…</p>;
   if (error) return null;
 
-  const totalImages = datasets.reduce((sum, d) => sum + (d.num_images ?? 0), 0);
+  const summaryDatasets = datasets.filter((d) => !d.parent_dataset);
+  const totalImages = summaryDatasets.reduce((sum, d) => sum + (d.num_images ?? 0), 0);
   const byTask: Record<string, number> = {};
   const byPlatform: Record<string, number> = {};
-  for (const d of datasets) {
+  for (const d of summaryDatasets) {
     const task = d.machine_learning_task ?? 'other';
     byTask[task] = (byTask[task] ?? 0) + 1;
     const platform = d.platform ?? 'unspecified';
@@ -27,7 +28,7 @@ function DatasetStats() {
       <div className="overflow-hidden rounded-card border border-border bg-white shadow-card">
         <div className="grid grid-cols-2 gap-4 p-6 sm:grid-cols-4">
           <div className="text-center">
-            <p className="text-2xl font-bold tabular-nums text-ink sm:text-3xl">{datasets.length}</p>
+            <p className="text-2xl font-bold tabular-nums text-ink sm:text-3xl">{summaryDatasets.length}</p>
             <p className="mt-0.5 text-xs font-medium uppercase tracking-wide text-muted">Datasets</p>
           </div>
           <div className="text-center">

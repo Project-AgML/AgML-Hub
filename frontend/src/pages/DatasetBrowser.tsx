@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useDeferredValue, useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useDatasets, filterDatasets } from '../lib/useDatasets';
 import { MultiSelectDropdown } from '../components/MultiSelectDropdown';
@@ -69,23 +69,29 @@ export function DatasetBrowser() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error } = useDatasets();
 
-  const q = searchParams.get('q') ?? '';
+  const qParam = searchParams.get('q') ?? '';
+  const [qLocal, setQLocal] = useState(qParam);
+  const qDeferred = useDeferredValue(qLocal);
+  useEffect(() => setQLocal(qParam), [qParam]);
   const mlTasksSelected = searchParams.getAll('ml_task');
   const agTasksSelected = searchParams.getAll('ag_task');
   const platformsSelected = searchParams.getAll('platform');
   const realSelected = searchParams.getAll('real');
 
-  const setSearchQuery = (value: string) => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (value) next.set('q', value);
-        else next.delete('q');
-        return next;
-      },
-      { replace: true }
-    );
-  };
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (qLocal) next.set('q', qLocal);
+          else next.delete('q');
+          return next;
+        },
+        { replace: true }
+      );
+    }, 250);
+    return () => clearTimeout(t);
+  }, [qLocal]);
 
   const toggleMultiFilter = (key: string, value: string) => {
     setSearchParams((prev) => {
@@ -112,21 +118,24 @@ export function DatasetBrowser() {
   };
 
   const hasActiveFilters = Boolean(
-    q || mlTasksSelected.length || agTasksSelected.length || platformsSelected.length || realSelected.length
+    qDeferred || mlTasksSelected.length || agTasksSelected.length || platformsSelected.length || realSelected.length
   );
-  const clearFilters = () => setSearchParams({}, { replace: true });
+  const clearFilters = () => {
+    setQLocal('');
+    setSearchParams({}, { replace: true });
+  };
 
   const safeData = Array.isArray(data) ? data : [];
   const filtered = useMemo(
     () =>
       filterDatasets(safeData, {
-        q: q || undefined,
+        q: qDeferred || undefined,
         mlTasks: mlTasksSelected.length ? mlTasksSelected : undefined,
         agTasks: agTasksSelected.length ? agTasksSelected : undefined,
         platforms: platformsSelected.length ? platformsSelected : undefined,
         realOrSynthetic: realSelected.length ? realSelected : undefined,
       }),
-    [data, q, mlTasksSelected, agTasksSelected, platformsSelected, realSelected]
+    [data, qDeferred, mlTasksSelected, agTasksSelected, platformsSelected, realSelected]
   );
 
   const mlTasks = useMemo(
@@ -145,6 +154,12 @@ export function DatasetBrowser() {
     () => unique(safeData.map((d) => d.real_or_synthetic)),
     [data]
   );
+
+  const INITIAL_SHOW = 60;
+  const [showCount, setShowCount] = useState(INITIAL_SHOW);
+  const displayed = useMemo(() => filtered.slice(0, showCount), [filtered, showCount]);
+  const hasMore = filtered.length > showCount;
+  useEffect(() => setShowCount(INITIAL_SHOW), [qDeferred, mlTasksSelected.length, agTasksSelected.length, platformsSelected.length, realSelected.length]);
 
   const activeFilterChips = useMemo(() => {
     const list: { key: string; value: string; label: string }[] = [];
@@ -189,8 +204,8 @@ export function DatasetBrowser() {
             id="dataset-search"
             type="search"
             placeholder="Name, task, location…"
-            value={q}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={qLocal}
+            onChange={(e) => setQLocal(e.target.value)}
             className="w-full rounded-button border border-border bg-white px-4 py-2.5 text-sm text-ink shadow-card placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
           />
         </div>
@@ -254,9 +269,9 @@ export function DatasetBrowser() {
           <span className="text-xs font-medium uppercase tracking-wide text-muted">
             Active
           </span>
-          {q && (
+          {qDeferred && (
             <span className={`${CHIP_CLASSES} bg-ink/10 text-ink`}>
-              “{q.length > 20 ? `${q.slice(0, 20)}…` : q}”
+              “{qDeferred.length > 20 ? `${qDeferred.slice(0, 20)}…` : qDeferred}”
             </span>
           )}
           {activeFilterChips.map(({ key, value, label }) => (
@@ -281,10 +296,21 @@ export function DatasetBrowser() {
       )}
 
       <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {filtered.map((d) => (
+        {displayed.map((d) => (
           <DatasetCard key={d.name} d={d} />
         ))}
       </div>
+      {hasMore && (
+        <div className="mt-6 text-center">
+          <button
+            type="button"
+            onClick={() => setShowCount((n) => Math.min(n + 60, filtered.length))}
+            className="rounded-button border border-border bg-white px-5 py-2.5 text-sm font-medium text-ink shadow-card transition hover:bg-border"
+          >
+            Show more ({filtered.length - showCount} remaining)
+          </button>
+        </div>
+      )}
       {filtered.length === 0 && safeData.length > 0 && (
         <p className="mt-8 text-muted">No datasets match the current filters.</p>
       )}
