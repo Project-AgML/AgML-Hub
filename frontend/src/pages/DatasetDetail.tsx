@@ -24,6 +24,14 @@ function formatCitationPreview(citation: string): string | null {
   return null;
 }
 
+/** Format byte count for display (e.g. "1.2 GB", "450 MB"). */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 function downloadBibFile(datasetName: string, citation: string) {
   const key = datasetName.replace(/-/g, '_').replace(/\s+/g, '_');
   const bib = citation.trim().startsWith('@')
@@ -44,6 +52,7 @@ export function DatasetDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [citationCopied, setCitationCopied] = useState(false);
+  const [zipSizeBytes, setZipSizeBytes] = useState<number | null>(null);
 
   useEffect(() => {
     fetch(publicUrl('datasets.json'))
@@ -57,6 +66,28 @@ export function DatasetDetail() {
   }, []);
 
   const dataset = data != null && name != null ? data.find((d) => d.name === name) ?? null : null;
+
+  const zipUrl = dataset != null ? `${AGML_S3_DATASET_BASE}/${encodeURIComponent(dataset.name)}.zip` : null;
+  useEffect(() => {
+    if (zipUrl == null) {
+      setZipSizeBytes(null);
+      return;
+    }
+    setZipSizeBytes(null);
+    let cancelled = false;
+    fetch(zipUrl, { method: 'HEAD' })
+      .then((r) => {
+        if (cancelled || !r.ok) return;
+        const len = r.headers.get('Content-Length');
+        if (len != null) {
+          const n = parseInt(len, 10);
+          if (!Number.isNaN(n) && n > 0) setZipSizeBytes(n);
+        }
+      })
+      .catch(() => { /* ignore: show download without size */ })
+      .finally(() => {});
+    return () => { cancelled = true; };
+  }, [zipUrl]);
 
   if (loading) {
     return (
@@ -145,12 +176,15 @@ export function DatasetDetail() {
           <code className="rounded bg-border px-1 py-0.5">agml.data.AgMLDataLoader(&#39;{dataset.name}&#39;)</code>.
         </p>
         <a
-          href={`${AGML_S3_DATASET_BASE}/${encodeURIComponent(dataset.name)}.zip`}
+          href={zipUrl ?? '#'}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-3 inline-block rounded-button bg-ink px-4 py-2 text-sm font-semibold text-white no-underline shadow-card transition hover:bg-ink/90"
         >
           Download {dataset.name}.zip
+          {zipSizeBytes != null && (
+            <span className="ml-2 font-normal opacity-90">({formatBytes(zipSizeBytes)})</span>
+          )}
         </a>
       </section>
 
