@@ -1,0 +1,12 @@
+# Dependencies
+node_modules
+
+# Build output
+frontend/dist
+
+# AgML source - cloned during CI, not committed
+agml-source
+
+# Editor / OS
+.DS_Store
+*.local

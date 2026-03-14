@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+  }
+  h1, h2, h3, h4 {
+    @apply font-sans font-bold tracking-tight;
+  }
+}
+
+/* Focus visible: show ring for keyboard focus, avoid removing outline without replacement */
+:focus-visible {
+  @apply outline-none ring-2 ring-accent ring-offset-2;
+}
