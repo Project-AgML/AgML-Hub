@@ -262,16 +262,18 @@ async function fetchZipSizeBytes(name) {
 
 /** Fetch zip sizes in chunks to avoid hammering S3. */
 async function enrichZipSizes(list) {
+  let got = 0;
   for (let i = 0; i < list.length; i += ZIP_SIZE_CONCURRENCY) {
     const chunk = list.slice(i, i + ZIP_SIZE_CONCURRENCY);
     await Promise.all(
       chunk.map(async (entry) => {
         entry.zip_size_bytes = await fetchZipSizeBytes(entry.name);
+        if (entry.zip_size_bytes != null) got++;
       })
     );
     if (chunk.length > 0) process.stdout.write('.');
   }
-  if (list.length > 0) console.log(' zip sizes');
+  if (list.length > 0) console.log(' zip sizes (%d/%d succeeded)', got, list.length);
 }
 
 async function generateDatasets() {
