@@ -14,7 +14,9 @@ const datasetsDir = path.join(agmlSource, 'docs', 'datasets');
 const sourceCitationsPath = path.join(assetsDir, 'source_citations.json');
 const outPath = path.join(frontendDir, 'public', 'datasets.json');
 
+const AGML_S3_DATASET_BASE = 'https://agdata-data.s3.us-west-1.amazonaws.com/datasets';
 const SKIP_NAMES = new Set(['iNatAg', 'iNatAg-mini']);
+const ZIP_SIZE_CONCURRENCY = 10;
 
 const KEY_MAP = {
   'Machine Learning Task': 'machine_learning_task',
@@ -243,7 +245,36 @@ function loadInatDatasets() {
   return list;
 }
 
-function generateDatasets() {
+/** HEAD request to S3 zip URL; returns Content-Length or null. Node has no CORS. */
+async function fetchZipSizeBytes(name) {
+  const url = `${AGML_S3_DATASET_BASE}/${encodeURIComponent(name)}.zip`;
+  try {
+    const r = await fetch(url, { method: 'HEAD' });
+    if (!r.ok) return null;
+    const len = r.headers.get('Content-Length');
+    if (len == null) return null;
+    const n = parseInt(len, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch zip sizes in chunks to avoid hammering S3. */
+async function enrichZipSizes(list) {
+  for (let i = 0; i < list.length; i += ZIP_SIZE_CONCURRENCY) {
+    const chunk = list.slice(i, i + ZIP_SIZE_CONCURRENCY);
+    await Promise.all(
+      chunk.map(async (entry) => {
+        entry.zip_size_bytes = await fetchZipSizeBytes(entry.name);
+      })
+    );
+    if (chunk.length > 0) process.stdout.write('.');
+  }
+  if (list.length > 0) console.log(' zip sizes');
+}
+
+async function generateDatasets() {
   let list = [];
   if (fs.existsSync(datasetsDir)) {
     const files = fs.readdirSync(datasetsDir).filter((f) => f.endsWith('.md'));
@@ -269,9 +300,15 @@ function generateDatasets() {
     }
   }
 
+  console.log('Fetching zip sizes for', list.length, 'datasets…');
+  await enrichZipSizes(list);
+
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(list, null, 2), 'utf8');
   console.log('Wrote', outPath, '—', list.length, 'datasets');
 }
 
-generateDatasets();
+generateDatasets().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

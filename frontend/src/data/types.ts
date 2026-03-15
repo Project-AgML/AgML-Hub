@@ -20,6 +20,8 @@ export interface Dataset {
   citation: string | null;
   /** If set, this is an iNat sub-dataset (e.g. iNatAg/sorghum_bicolor); exclude from summary count */
   parent_dataset?: string | null;
+  /** Zip file size in bytes (from build-time HEAD to S3). */
+  zip_size_bytes?: number | null;
 }
 
 export interface LeaderboardRow {
