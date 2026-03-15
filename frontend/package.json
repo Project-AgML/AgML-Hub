@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && cp dist/index.html dist/404.html",
     "prebuild": "node scripts/generate-datasets.js && node scripts/generate-leaderboard.js",
     "lint": "eslint .",
     "preview": "vite preview"
