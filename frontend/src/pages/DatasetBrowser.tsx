@@ -1,11 +1,98 @@
 import { useMemo, useDeferredValue, useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useDatasets, filterDatasets } from '../lib/useDatasets';
+import { useDatasets, filterDatasets, formatDisplayLocation } from '../lib/useDatasets';
 import { MultiSelectDropdown } from '../components/MultiSelectDropdown';
 import type { Dataset } from '../data/types';
 
 const CHIP_CLASSES =
   'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium';
+
+type FilterKind = 'dropdown' | 'chips';
+
+type DatasetFilterConfig = {
+  key: string;
+  label: string;
+  field: keyof Dataset;
+  kind: FilterKind;
+  formatOption?: (value: string) => string;
+  chipLabel?: string;
+  mode?: 'exact' | 'containsAny';
+};
+
+const DATASET_FILTERS: DatasetFilterConfig[] = [
+  {
+    key: 'ml_task',
+    label: 'Task',
+    chipLabel: 'Task',
+    field: 'machine_learning_task',
+    kind: 'chips',
+    formatOption: (value) => value.replace(/_/g, ' '),
+  },
+  {
+    key: 'ag_task',
+    label: 'Ag task',
+    field: 'agricultural_task',
+    kind: 'dropdown',
+    formatOption: (value) => value.replace(/_/g, ' '),
+  },
+  {
+    key: 'environment',
+    label: 'Environment',
+    chipLabel: 'Environment',
+    field: 'environment',
+    kind: 'chips',
+    formatOption: (value) => value.charAt(0).toUpperCase() + value.slice(1),
+  },
+  {
+    key: 'augmented_counterpart',
+    label: 'Augmented counterpart',
+    chipLabel: 'Augmented',
+    field: 'augmented_counterpart',
+    kind: 'chips',
+    formatOption: (value) => (value === 'yes' ? 'Yes' : 'No'),
+  },
+  {
+    key: 'crop_types',
+    label: 'Crop type',
+    chipLabel: 'Crop type',
+    field: 'crop_types',
+    kind: 'dropdown',
+    mode: 'containsAny',
+    formatOption: (value) => value.replace(/_/g, ' '),
+  },
+  {
+    key: 'location',
+    label: 'Location',
+    chipLabel: 'Location',
+    field: 'location',
+    kind: 'dropdown',
+    mode: 'containsAny',
+    formatOption: (value) => value.replace(/_/g, ' '),
+  },
+  {
+    key: 'platform',
+    label: 'Platform',
+    field: 'platform',
+    kind: 'dropdown',
+    formatOption: (value) => value,
+  },
+  {
+    key: 'real',
+    label: 'Data',
+    chipLabel: 'Data',
+    field: 'real_or_synthetic',
+    kind: 'chips',
+    formatOption: (value) => value,
+  },
+] as const;
+
+type FilterKey = (typeof DATASET_FILTERS)[number]['key'];
+
+type ActiveFilterChip = {
+  key: FilterKey;
+  value: string;
+  label: string;
+};
 
 function DatasetCard({ d }: { d: Dataset }) {
   return (
@@ -40,7 +127,7 @@ function DatasetCard({ d }: { d: Dataset }) {
           )}
         </div>
         {d.location && (
-          <p className="mt-2 text-sm text-muted">{d.location}</p>
+          <p className="mt-2 text-sm text-muted">{formatDisplayLocation(d.location)}</p>
         )}
         {d.documentation && (
           <a
@@ -65,6 +152,17 @@ function unique<T>(arr: (T | null | undefined)[], sort = true): T[] {
   return out;
 }
 
+function getFilterValues(datasets: Dataset[], field: keyof Dataset): string[] {
+  return unique(
+    datasets.flatMap((dataset) => {
+      const value = dataset[field];
+      if (typeof value === 'string') return [value];
+      if (Array.isArray(value)) return value.filter((entry): entry is string => typeof entry === 'string');
+      return [];
+    })
+  );
+}
+
 export function DatasetBrowser() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data, loading, error } = useDatasets();
@@ -72,11 +170,19 @@ export function DatasetBrowser() {
   const qParam = searchParams.get('q') ?? '';
   const [qLocal, setQLocal] = useState(qParam);
   const qDeferred = useDeferredValue(qLocal);
-  useEffect(() => setQLocal(qParam), [qParam]);
-  const mlTasksSelected = searchParams.getAll('ml_task');
-  const agTasksSelected = searchParams.getAll('ag_task');
-  const platformsSelected = searchParams.getAll('platform');
-  const realSelected = searchParams.getAll('real');
+  useEffect(() => {
+    const handle = window.requestAnimationFrame(() => setQLocal(qParam));
+    return () => window.cancelAnimationFrame(handle);
+  }, [qParam]);
+  const selections = useMemo(() => {
+    const next = {} as Record<FilterKey, string[]>;
+    for (const filter of DATASET_FILTERS) {
+      next[filter.key] = searchParams.getAll(filter.key);
+    }
+    return next;
+  }, [searchParams]);
+
+  const activeFilterCount = DATASET_FILTERS.reduce((count, filter) => count + selections[filter.key].length, 0);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -91,9 +197,9 @@ export function DatasetBrowser() {
       );
     }, 250);
     return () => clearTimeout(t);
-  }, [qLocal]);
+  }, [qLocal, setSearchParams]);
 
-  const toggleMultiFilter = (key: string, value: string) => {
+  const toggleMultiFilter = (key: FilterKey, value: string) => {
     setSearchParams((prev) => {
       const current = prev.getAll(key);
       const next = current.includes(value)
@@ -106,7 +212,7 @@ export function DatasetBrowser() {
     }, { replace: true });
   };
 
-  const removeFilterValue = (key: string, value: string) => {
+  const removeFilterValue = (key: FilterKey, value: string) => {
     setSearchParams((prev) => {
       const current = prev.getAll(key);
       const rest = current.filter((v) => v !== value);
@@ -117,58 +223,56 @@ export function DatasetBrowser() {
     }, { replace: true });
   };
 
-  const hasActiveFilters = Boolean(
-    qDeferred || mlTasksSelected.length || agTasksSelected.length || platformsSelected.length || realSelected.length
-  );
+  const hasActiveFilters = Boolean(qDeferred || activeFilterCount);
   const clearFilters = () => {
     setQLocal('');
     setSearchParams({}, { replace: true });
   };
 
-  const safeData = Array.isArray(data) ? data : [];
+  const safeData = useMemo(() => (Array.isArray(data) ? data : []), [data]);
   const filtered = useMemo(
     () =>
       filterDatasets(safeData, {
         q: qDeferred || undefined,
-        mlTasks: mlTasksSelected.length ? mlTasksSelected : undefined,
-        agTasks: agTasksSelected.length ? agTasksSelected : undefined,
-        platforms: platformsSelected.length ? platformsSelected : undefined,
-        realOrSynthetic: realSelected.length ? realSelected : undefined,
+        fieldFilters: DATASET_FILTERS.map((filter) => ({
+          field: filter.field,
+          values: selections[filter.key],
+          mode: filter.mode,
+        })),
       }),
-    [data, qDeferred, mlTasksSelected, agTasksSelected, platformsSelected, realSelected]
+    [safeData, qDeferred, selections]
   );
 
-  const mlTasks = useMemo(
-    () => unique(safeData.map((d) => d.machine_learning_task)),
-    [data]
-  );
-  const agTasks = useMemo(
-    () => unique(safeData.map((d) => d.agricultural_task)),
-    [data]
-  );
-  const platforms = useMemo(
-    () => unique(safeData.map((d) => d.platform)),
-    [data]
-  );
-  const realOptions = useMemo(
-    () => unique(safeData.map((d) => d.real_or_synthetic)),
-    [data]
+  const filterOptions = useMemo(
+    () =>
+      Object.fromEntries(
+        DATASET_FILTERS.map((filter) => [filter.key, getFilterValues(safeData, filter.field)])
+      ) as Record<FilterKey, string[]>,
+    [safeData]
   );
 
   const INITIAL_SHOW = 60;
   const [showCount, setShowCount] = useState(INITIAL_SHOW);
   const displayed = useMemo(() => filtered.slice(0, showCount), [filtered, showCount]);
   const hasMore = filtered.length > showCount;
-  useEffect(() => setShowCount(INITIAL_SHOW), [qDeferred, mlTasksSelected.length, agTasksSelected.length, platformsSelected.length, realSelected.length]);
+  useEffect(() => {
+    const handle = window.requestAnimationFrame(() => setShowCount(INITIAL_SHOW));
+    return () => window.cancelAnimationFrame(handle);
+  }, [qDeferred, activeFilterCount]);
 
   const activeFilterChips = useMemo(() => {
-    const list: { key: string; value: string; label: string }[] = [];
-    mlTasksSelected.forEach((v) => list.push({ key: 'ml_task', value: v, label: v.replace(/_/g, ' ') }));
-    agTasksSelected.forEach((v) => list.push({ key: 'ag_task', value: v, label: v.replace(/_/g, ' ') }));
-    platformsSelected.forEach((v) => list.push({ key: 'platform', value: v, label: v }));
-    realSelected.forEach((v) => list.push({ key: 'real', value: v, label: v }));
+    const list: ActiveFilterChip[] = [];
+    DATASET_FILTERS.forEach((filter) => {
+      selections[filter.key].forEach((value) => {
+        list.push({
+          key: filter.key,
+          value,
+          label: filter.formatOption ? filter.formatOption(value) : value,
+        });
+      });
+    });
     return list;
-  }, [mlTasksSelected, agTasksSelected, platformsSelected, realSelected]);
+  }, [selections]);
 
   if (loading) {
     return (
@@ -209,60 +313,39 @@ export function DatasetBrowser() {
             className="w-full rounded-button border border-border bg-white px-4 py-2.5 text-sm text-ink shadow-card placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
           />
         </div>
-        <MultiSelectDropdown
-          label="Ag task"
-          options={agTasks}
-          selected={agTasksSelected}
-          onToggle={(value) => toggleMultiFilter('ag_task', value)}
-        />
-        <MultiSelectDropdown
-          label="Platform"
-          options={platforms}
-          selected={platformsSelected}
-          onToggle={(value) => toggleMultiFilter('platform', value)}
-          formatOption={(v) => v}
-        />
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="w-full text-xs font-medium uppercase tracking-wide text-muted sm:w-auto">
-          Task
-        </span>
-        {mlTasks.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => toggleMultiFilter('ml_task', t)}
-            className={`min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 ${CHIP_CLASSES} cursor-pointer transition ${
-              mlTasksSelected.includes(t)
-                ? 'bg-accent text-white'
-                : 'border border-border bg-paper text-ink hover:border-accent/50 hover:bg-accent/5'
-            }`}
-          >
-            {t.replace(/_/g, ' ')}
-          </button>
+        {DATASET_FILTERS.filter((filter) => filter.kind === 'dropdown').map((filter) => (
+          <MultiSelectDropdown
+            key={filter.key}
+            label={filter.label}
+            options={filterOptions[filter.key]}
+            selected={selections[filter.key]}
+            onToggle={(value) => toggleMultiFilter(filter.key, value)}
+            formatOption={filter.formatOption}
+          />
         ))}
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted">
-          Data
-        </span>
-        {realOptions.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => toggleMultiFilter('real', t)}
-            className={`min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 ${CHIP_CLASSES} cursor-pointer transition ${
-              realSelected.includes(t)
-                ? 'bg-accent text-white'
-                : 'border border-border bg-paper text-ink hover:border-accent/50 hover:bg-accent/5'
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      {DATASET_FILTERS.filter((filter) => filter.kind === 'chips').map((filter) => (
+        <div key={filter.key} className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="w-full text-xs font-medium uppercase tracking-wide text-muted sm:w-auto">
+            {filter.chipLabel ?? filter.label}
+          </span>
+          {filterOptions[filter.key].map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => toggleMultiFilter(filter.key, value)}
+              className={`min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 ${CHIP_CLASSES} cursor-pointer transition ${
+                selections[filter.key].includes(value)
+                  ? 'bg-accent text-white'
+                  : 'border border-border bg-paper text-ink hover:border-accent/50 hover:bg-accent/5'
+              }`}
+            >
+              {filter.formatOption ? filter.formatOption(value) : value}
+            </button>
+          ))}
+        </div>
+      ))}
 
       {hasActiveFilters && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -317,7 +400,8 @@ export function DatasetBrowser() {
       {safeData.length === 0 && !loading && !error && (
         <p className="mt-8 text-muted">
           No datasets loaded. Run <code className="rounded bg-border px-1 py-0.5">npm run prebuild</code> in the
-          frontend directory to generate <code className="rounded bg-border px-1 py-0.5">datasets.json</code>.
+          frontend directory to generate <code className="rounded bg-border px-1 py-0.5">datasets.json</code> and
+          populate <code className="rounded bg-border px-1 py-0.5">hf_datasets.json</code>.
         </p>
       )}
     </div>

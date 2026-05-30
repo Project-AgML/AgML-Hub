@@ -2,13 +2,17 @@ export interface Dataset {
   name: string;
   machine_learning_task: string | null;
   agricultural_task: string | null;
-  location: string | null;
+  location: string | string[] | null;
+  environment: string | null;
+  augmented_counterpart: string | null;
+  crop_types: string[] | null;
   sensor_modality: string | null;
   real_or_synthetic: string | null;
   platform: string | null;
   input_data_format: string | null;
   annotation_format: string | null;
   num_images: number | null;
+  augmented_num_images: number | null;
   documentation: string | null;
   classes: string | null;
   stats_mean: number[] | null;

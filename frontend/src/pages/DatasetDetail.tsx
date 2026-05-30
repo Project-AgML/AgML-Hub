@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { Dataset } from '../data/types';
-import { publicUrl } from '../lib/publicUrl';
+import { loadDatasets, formatDisplayLocation } from '../lib/useDatasets';
 
 /** AgML hosts many public datasets as zips on S3; same URL the Python package uses. */
 const AGML_S3_DATASET_BASE = 'https://agdata-data.s3.us-west-1.amazonaws.com/datasets';
@@ -54,11 +54,7 @@ export function DatasetDetail() {
   const [citationCopied, setCitationCopied] = useState(false);
 
   useEffect(() => {
-    fetch(publicUrl('datasets.json'))
-      .then((r) => {
-        if (!r.ok) throw new Error('Failed to load datasets');
-        return r.json();
-      })
+    loadDatasets()
       .then(setData)
       .catch(setError)
       .finally(() => setLoading(false));
@@ -66,6 +62,7 @@ export function DatasetDetail() {
 
   const dataset = data != null && name != null ? data.find((d) => d.name === name) ?? null : null;
   const zipUrl = dataset != null ? `${AGML_S3_DATASET_BASE}/${encodeURIComponent(dataset.name)}.zip` : null;
+  const isHuggingFace = dataset?.platform?.toLowerCase() === 'huggingface';
 
   if (loading) {
     return (
@@ -114,7 +111,9 @@ export function DatasetDetail() {
         <dt className="text-muted">Agricultural task</dt>
         <dd className="text-ink">{dataset.agricultural_task ?? '—'}</dd>
         <dt className="text-muted">Location</dt>
-        <dd className="text-ink">{dataset.location ?? '—'}</dd>
+        <dd className="text-ink">{formatDisplayLocation(dataset.location)}</dd>
+        <dt className="text-muted">Environment</dt>
+        <dd className="text-ink">{dataset.environment ?? '—'}</dd>
         <dt className="text-muted">Sensor modality</dt>
         <dd className="text-ink">{dataset.sensor_modality ?? '—'}</dd>
         <dt className="text-muted">Real or synthetic</dt>
@@ -129,6 +128,14 @@ export function DatasetDetail() {
         <dd className="text-ink tabular-nums">
           {dataset.num_images != null ? dataset.num_images.toLocaleString() : '—'}
         </dd>
+        {dataset.augmented_num_images != null && (
+          <>
+            <dt className="text-muted">Augmented images</dt>
+            <dd className="text-ink tabular-nums">
+              {dataset.augmented_num_images.toLocaleString()} images
+            </dd>
+          </>
+        )}
         <dt className="text-muted">Documentation</dt>
         <dd className="text-ink">
           {dataset.documentation ? (
@@ -148,22 +155,32 @@ export function DatasetDetail() {
 
       <section className="mt-8 rounded border border-border bg-paper p-4">
         <h2 className="text-lg font-bold text-ink">Download dataset</h2>
-        <p className="mt-2 text-sm text-muted">
-          Many AgML datasets are available as zip files from AgML’s S3 bucket. You can download
-          directly or use the Python package: <code className="rounded bg-border px-1 py-0.5">pip install agml</code> then{' '}
-          <code className="rounded bg-border px-1 py-0.5">agml.data.AgMLDataLoader(&#39;{dataset.name}&#39;)</code>.
-        </p>
-        <a
-          href={zipUrl ?? '#'}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 inline-block rounded-button bg-ink px-4 py-2 text-sm font-semibold text-white no-underline shadow-card transition hover:bg-ink/90"
-        >
-          Download {dataset.name}.zip
-          {dataset.zip_size_bytes != null && dataset.zip_size_bytes > 0 && (
-            <span className="ml-2 font-normal opacity-90">({formatBytes(dataset.zip_size_bytes)})</span>
-          )}
-        </a>
+        {isHuggingFace ? (
+          <p className="mt-2 text-sm text-muted">
+            Use <code className="rounded bg-border px-1 py-0.5">agml.data.loadhfdataset</code> with{' '}
+            <code className="rounded bg-border px-1 py-0.5">&quot;Project-AgML/{dataset.name}&quot;</code> to load this
+            dataset from Hugging Face.
+          </p>
+        ) : (
+          <>
+            <p className="mt-2 text-sm text-muted">
+              Many AgML datasets are available as zip files from AgML’s S3 bucket. You can download
+              directly or use the Python package: <code className="rounded bg-border px-1 py-0.5">pip install agml</code> then{' '}
+              <code className="rounded bg-border px-1 py-0.5">agml.data.AgMLDataLoader(&#39;{dataset.name}&#39;)</code>.
+            </p>
+            <a
+              href={zipUrl ?? '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-block rounded-button bg-ink px-4 py-2 text-sm font-semibold text-white no-underline shadow-card transition hover:bg-ink/90"
+            >
+              Download {dataset.name}.zip
+              {dataset.zip_size_bytes != null && dataset.zip_size_bytes > 0 && (
+                <span className="ml-2 font-normal opacity-90">({formatBytes(dataset.zip_size_bytes)})</span>
+              )}
+            </a>
+          </>
+        )}
       </section>
 
       {dataset.classes != null && dataset.classes !== '' && (
